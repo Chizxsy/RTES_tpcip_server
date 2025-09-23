@@ -15,10 +15,16 @@
 #include <sys/queue.h>
 #include <time.h>
 
-#define PORT "9000"
-#define DATA_FILE "/var/tmp/aesdsocketdata"
+#define NSTRS 3
+#define LOCAL_PORT 54321
 #define BUFFER_SIZE 1024
 #define timestamp_interval 10
+
+char *strs[NSTRS] = {
+	"This is the first client string.\n",
+	"This is the second client string.\n",
+	"This is the third client string.\n"
+};
 
 int quit_sig = 0;
 int server_sockfd = -1;
@@ -169,7 +175,7 @@ int main(int argc, char *argv[]) {
     pthread_mutex_init(&data_file_mutex, NULL);
 
     // open aesdsocket log. journalctl -f | grep aesdsocket
-    openlog("aesdsocket", LOG_PID, LOG_USER);
+    openlog("socketserver", LOG_PID, LOG_USER);
 
     // start timer thread
     pthread_create(&timer_thread, NULL, timestamp, NULL);
