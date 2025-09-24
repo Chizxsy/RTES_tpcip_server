@@ -46,12 +46,13 @@ int receive_data(int sockfd){
 
         if (bytes_recv == -1){
             syslog(LOG_ERR, "recv");
+            return -1;
         }
     
 }
 
 int main(int argc, char *argv[]) {
-    int client_sockfd, status, numsets, i, j; 
+    int client_sockfd, status; 
     int sockarg;
     struct addrinfo hints, *res, *p;
     struct sockaddr_storage serveraddr;
