@@ -109,7 +109,7 @@ int main(int argc, char *argv[]){
 
         if (pid < 0){
             syslog(LOG_ERR, "fork");
-        } else {
+        } else if (PID ==0){
 
             close(listen_sockfd);
 
@@ -126,9 +126,12 @@ int main(int argc, char *argv[]){
             }
 
             close(client_sockfd);
-        }
-        close(client_sockfd);
-    
+            exit(0);
+        
+        } else {
+            close(client_sockfd);
+
+        }    
     }
     closelog();
     return 0;
