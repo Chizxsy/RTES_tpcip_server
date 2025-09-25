@@ -109,7 +109,7 @@ int main(int argc, char *argv[]){
 
         if (pid < 0){
             syslog(LOG_ERR, "fork");
-        } else if (PID ==0){
+        } else if (pid == 0){
 
             close(listen_sockfd);
 
