@@ -6,6 +6,6 @@ all: raid5
 
 raid5: raid5.o
 	$(CC) $(CFLAGS) -o $@ $^
-	
+
 clean:
-	rm -f *.o rpi_server client
+	rm -f *.o raid5
