@@ -40,24 +40,23 @@ int read_byte(ecc_t *ecc, unsigned char *address, unsigned char *byteRead) {
     SYNDROME = (codeword & SYNBITS) ^ (ecc->code_memory[offset] & SYNBITS);
 
     pW = (ecc->code_memory[offset]) & PW_BIT;
-    // BUG -- pW2 = (codeword) & PW_BIT; 
+
     pW2 |= (PW_BIT & (
-                      (((
-                          (ecc->data_memory[offset] & DATA_BIT_1) ^ 
-                         ((ecc->data_memory[offset] & DATA_BIT_2)>>1) ^ 
-                         ((ecc->data_memory[offset] & DATA_BIT_3)>>2) ^ 
-                         ((ecc->data_memory[offset] & DATA_BIT_4)>>3) ^ 
-                         ((ecc->data_memory[offset] & DATA_BIT_5)>>4) ^ 
-                         ((ecc->data_memory[offset] & DATA_BIT_6)>>5) ^ 
-                         ((ecc->data_memory[offset] & DATA_BIT_7)>>6) ^ 
-                         ((ecc->data_memory[offset] & DATA_BIT_8)>>7)) ^ 
-                         ((ecc->code_memory[offset] & P01_BIT) ^ 
-                         ((ecc->code_memory[offset] & P02_BIT)>>1) ^ 
-                         ((ecc->code_memory[offset] & P03_BIT)>>2) ^ 
-                         ((ecc->code_memory[offset] & P04_BIT)>>3)))<<4) 
-                        ) );
-
-
+                        (((
+                            (ecc->data_memory[offset] & DATA_BIT_1) ^ 
+                            ((ecc->data_memory[offset] & DATA_BIT_2)>>1) ^ 
+                            ((ecc->data_memory[offset] & DATA_BIT_3)>>2) ^ 
+                            ((ecc->data_memory[offset] & DATA_BIT_4)>>3) ^ 
+                            ((ecc->data_memory[offset] & DATA_BIT_5)>>4) ^ 
+                            ((ecc->data_memory[offset] & DATA_BIT_6)>>5) ^ 
+                            ((ecc->data_memory[offset] & DATA_BIT_7)>>6) ^ 
+                            ((ecc->data_memory[offset] & DATA_BIT_8)>>7)) ^ 
+                            ((ecc->code_memory[offset] & P01_BIT) ^ 
+                            ((ecc->code_memory[offset] & P02_BIT)>>1) ^ 
+                            ((ecc->code_memory[offset] & P03_BIT)>>2) ^ 
+                            ((ecc->code_memory[offset] & P04_BIT)>>3)))<<4) 
+                            ) );
+    
     if(printTrace) { printf("READ  : COMPUTED PARITY = ");print_code(codeword); }
     if(printTrace) { printf("READ  : PARITY          = ");print_code_word(ecc, address); }
     if(printTrace) { printf("READ  : DATA            = ");print_data_word(ecc, address); }
@@ -67,9 +66,12 @@ int read_byte(ecc_t *ecc, unsigned char *address, unsigned char *byteRead) {
     if(printTrace) { printf("READ  : PW2             = ");print_code(pW2); }
     if(printTrace) { printf("\n"); }
     
+        
+
     // 1) if SYNDROME ==0 and pW == pW2, return NO_ERROR
     if((SYNDROME == 0) && (pW == pW2))
     {
+        *byteRead = ecc->data_memory[offset];
         return NO_ERROR;
     }
 
@@ -93,7 +95,26 @@ int read_byte(ecc_t *ecc, unsigned char *address, unsigned char *byteRead) {
     if((SYNDROME != 0) && (pW != pW2))
     {
         printf("SBE @ %d\n\n", SYNDROME);
+
+        unsigned char correct_byte = ecc->data_memory[offset];
+
+        switch(SYNDROME) {
+        case 3: correct_byte ^= DATA_BIT_1; break;
+        case 5: correct_byte ^= DATA_BIT_2; break;
+        case 6: correct_byte ^= DATA_BIT_3; break;
+        case 7: correct_byte ^= DATA_BIT_4; break;
+        case 9: correct_byte ^= DATA_BIT_5; break;
+        case 10: correct_byte ^= DATA_BIT_6; break;
+        case 11: correct_byte ^= DATA_BIT_7; break;
+        case 12: correct_byte ^= DATA_BIT_8; break;
+        default:
+            printf("Invalid bit position");
+            break;
+         }
+
+        *byteRead = correct_byte;
         return SYNDROME;
+
     }
 
     // if we get here, something is seriously wrong like triple bit
