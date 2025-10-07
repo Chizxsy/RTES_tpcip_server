@@ -64,9 +64,9 @@ bool file_exists[chunk_num + 1]; // +1 for the parity file
     for (int i = 0; i < chunk_num; i++) {
         if (i == missing_file_index) {
             syslog(LOG_INFO, "Reconstructing missing chunk %d...", i);
-            // XOR all *other* existing data chunks
+            // XOR all existing data chunks
             for (int j = 0; j < chunk_num; j++) {
-                if (i == j) continue; // Skip the missing chunk itself
+                if (i == j) continue; // skip the missing chunk
                 if (!file_exists[j]) { syslog(LOG_ERR, "Logic error: trying to read non-existent chunk."); return -1; }
                 
                 char filename[BUFFER_SIZE];
@@ -76,18 +76,27 @@ bool file_exists[chunk_num + 1]; // +1 for the parity file
                 fclose(fp_chunk);
                 for (size_t k = 0; k < bytes_read; k++) rebuilt_buffer[k] ^= temp_buffer[k];
             }
-            // Finally, XOR the parity chunk
+            // XOR
             if (!file_exists[chunk_num]) { syslog(LOG_ERR, "Cannot rebuild data chunk: parity file is also missing."); return -1; }
             FILE *fp_parity = fopen(parity_filename, "rb");
             size_t bytes_read = fread(temp_buffer, 1, chunk_size, fp_parity);
             fclose(fp_parity);
             for (size_t k = 0; k < bytes_read; k++) rebuilt_buffer[k] ^= temp_buffer[k];
 
-            // Write the rebuilt chunk to the final file
+            // write rebuilt chunk to rebuilt file
             fwrite(rebuilt_buffer, 1, bytes_read, fp_rebuilt);
+            // write rebuilt chunk to binary file
+            char missing_filename[BUFFER_SIZE];
+            snprintf(missing_filename, sizeof(missing_filename), "%s/chunk_%d.bin", input_dir, i);
+            FILE *fp_new_chunk = fopen(missing_filename, "wb");
+            if (fp_new_chunk) {
+                fwrite(rebuilt_buffer, 1, bytes_read, fp_new_chunk);
+                fclose(fp_new_chunk);
+                syslog(LOG_ERR, "Regenerated missing file: %s\n", missing_filename);
+            }
 
         } else {
-            // --- Write existing data chunk ---
+
             char filename[BUFFER_SIZE];
             snprintf(filename, sizeof(filename), "%s/chunk_%d.bin", input_dir, i);
             FILE *fp_chunk = fopen(filename, "rb");
@@ -246,7 +255,7 @@ int main(int argc, char *argv[]){
     char *output_dir = argv[3];
 
     int split_file = store_image(input_file, chunk_size, output_dir);
-    if (split_file > 0){
+    if (split_file == 0){
         syslog(LOG_ERR, "Failed to store image");
 	return -1;
     }
