@@ -5,13 +5,14 @@
 
 #define buffer_size 1028
 
-int store_image(char *input_file, size_t chunk_size, char *output_file){
+int store_image(char *input_file, size_t chunk_size, char *output_dir){
     int chunk_num = 0;
 
     // open source image
     FILE *fp_input = fopen(input_file, "rb");
     if (fp_input == NULL){
         syslog(LOG_ERR, "Failed to open input file");
+	perror("fopen error"); 
         return -1;
     }
 
@@ -43,12 +44,13 @@ int store_image(char *input_file, size_t chunk_size, char *output_file){
             syslog(LOG_ERR, "Failed to read byte");
             fclose(fp_input);
             free(buffer);
+	    return -1;
         }
 
         char output_filename[buffer_size];
-        snprintf(output_filename, sizeof(output_filename), "chunk_%s.bin", output_file, chunk_num);
-
-        FILE *fp_output = fopen(output_file, "wb");
+	snprintf(output_filename, sizeof(output_filename), "%s/chunk_%d.bin", output_dir, chunk_num);
+        
+	FILE *fp_output = fopen(output_filename, "wb");
         if (fp_output == NULL){
             syslog(LOG_ERR, "Failed to open output file");
             free(buffer);
@@ -57,16 +59,15 @@ int store_image(char *input_file, size_t chunk_size, char *output_file){
         }
 
         size_t bytes_written = fwrite(buffer, 1, bytes_rem, fp_output);
+	fclose(fp_output);
 
         if (bytes_written != bytes_rem){
             syslog(LOG_ERR, "Failed to write to output file");
             free(buffer);
-            fclose(fp_output);
             fclose(fp_input);
             return -1;
         }
 
-        fclose(fp_output);  
         num_bytes -= bytes_rem;
         chunk_num++;
     }
@@ -75,6 +76,7 @@ int store_image(char *input_file, size_t chunk_size, char *output_file){
     syslog(LOG_INFO, "File splitting complete. Total chunks created: %d\n", chunk_num);
     free(buffer);
     fclose(fp_input);
+    return 0;
 }
 
 
@@ -83,16 +85,17 @@ int main(int argc, char *argv[]){
 
     if (argc != 4){
         syslog(LOG_ERR, "Incorrect number of arguments");
-        return 1;
+        return -1;
     }
 
-    char *input_file = &argv[1];
-    size_t chunk_size = (size_t)argv[2];
-    char *output_dir = &argv[3];
+    char *input_file = argv[1];
+    size_t chunk_size = strtoul(argv[2], NULL, 10);
+    char *output_dir = argv[3];
 
     int split_file = store_image(input_file, chunk_size, output_dir);
     if (split_file > 0){
         syslog(LOG_ERR, "Failed to store image");
+	return -1;
     }
 
 
