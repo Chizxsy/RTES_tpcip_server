@@ -2,8 +2,106 @@
 #include <stdlib.h>
 #include <string.h>
 #include <syslog.h>
+#include <stdbool.h>
 
-#define buffer_size 1028
+#define BUFFER_SIZE 2048
+
+int rebuild_image(char *output_filename, char *input_dir, int chunk_num, size_t chunk_size){
+
+bool file_exists[chunk_num + 1]; // +1 for the parity file
+    int missing_file_count = 0;
+    int missing_file_index = -1; // -1 means nothing missing, chunk_num means parity is missing
+
+    // --- Step 1: Check which files exist ---
+    for (int i = 0; i < chunk_num; i++) {
+        char filename[BUFFER_SIZE];
+        snprintf(filename, sizeof(filename), "%s/chunk_%d.bin", input_dir, i);
+        FILE *f = fopen(filename, "rb");
+        if (f) {
+            file_exists[i] = true;
+            fclose(f);
+        } else {
+            file_exists[i] = false;
+            missing_file_count++;
+            missing_file_index = i;
+        }
+    }
+
+    char parity_filename[BUFFER_SIZE];
+    snprintf(parity_filename, sizeof(parity_filename), "%s/parity.bin", input_dir);
+    FILE *f = fopen(parity_filename, "rb");
+    if (f) {
+        file_exists[chunk_num] = true;
+        fclose(f);
+    } else {
+        file_exists[chunk_num] = false;
+        missing_file_count++;
+        missing_file_index = chunk_num;
+    }
+
+    // check for missing files
+    if (missing_file_count > 1) {
+        syslog(LOG_ERR, "Unrecoverable error: %d files are missing. Cannot rebuild.", missing_file_count);
+        return -1;
+    }
+    if (missing_file_count == 0) {
+        syslog(LOG_INFO, "No files missing. Performing simple reassembly.");
+    } else {
+        syslog(LOG_INFO, "Detected missing file index %d. Attempting to rebuild.", missing_file_index);
+    }
+
+    FILE *fp_rebuilt = fopen(output_filename, "wb");
+    if (!fp_rebuilt) {
+        syslog(LOG_ERR, "Could not create final output file: %s", output_filename);
+        return -1;
+    }
+
+    char *temp_buffer = malloc(chunk_size);
+    char *rebuilt_buffer = calloc(chunk_size, 1);
+
+
+    // rebuild from parity
+    for (int i = 0; i < chunk_num; i++) {
+        if (i == missing_file_index) {
+            syslog(LOG_INFO, "Reconstructing missing chunk %d...", i);
+            // XOR all *other* existing data chunks
+            for (int j = 0; j < chunk_num; j++) {
+                if (i == j) continue; // Skip the missing chunk itself
+                if (!file_exists[j]) { syslog(LOG_ERR, "Logic error: trying to read non-existent chunk."); return -1; }
+                
+                char filename[BUFFER_SIZE];
+                snprintf(filename, sizeof(filename), "%s/chunk_%d.bin", input_dir, j);
+                FILE *fp_chunk = fopen(filename, "rb");
+                size_t bytes_read = fread(temp_buffer, 1, chunk_size, fp_chunk);
+                fclose(fp_chunk);
+                for (size_t k = 0; k < bytes_read; k++) rebuilt_buffer[k] ^= temp_buffer[k];
+            }
+            // Finally, XOR the parity chunk
+            if (!file_exists[chunk_num]) { syslog(LOG_ERR, "Cannot rebuild data chunk: parity file is also missing."); return -1; }
+            FILE *fp_parity = fopen(parity_filename, "rb");
+            size_t bytes_read = fread(temp_buffer, 1, chunk_size, fp_parity);
+            fclose(fp_parity);
+            for (size_t k = 0; k < bytes_read; k++) rebuilt_buffer[k] ^= temp_buffer[k];
+
+            // Write the rebuilt chunk to the final file
+            fwrite(rebuilt_buffer, 1, bytes_read, fp_rebuilt);
+
+        } else {
+            // --- Write existing data chunk ---
+            char filename[BUFFER_SIZE];
+            snprintf(filename, sizeof(filename), "%s/chunk_%d.bin", input_dir, i);
+            FILE *fp_chunk = fopen(filename, "rb");
+            size_t bytes_read = fread(temp_buffer, 1, chunk_size, fp_chunk);
+            fclose(fp_chunk);
+            fwrite(temp_buffer, 1, bytes_read, fp_rebuilt);
+        }
+    }
+
+    fclose(fp_rebuilt);
+    free(temp_buffer);
+    free(rebuilt_buffer);
+    return 0;
+}
 
 int store_image(char *input_file, size_t chunk_size, char *output_dir){
     int chunk_num = 0;
@@ -12,7 +110,7 @@ int store_image(char *input_file, size_t chunk_size, char *output_dir){
     FILE *fp_input = fopen(input_file, "rb");
     if (fp_input == NULL){
         syslog(LOG_ERR, "Failed to open input file");
-	perror("fopen error"); 
+	    //perror("fopen error"); 
         return -1;
     }
 
@@ -60,7 +158,7 @@ int store_image(char *input_file, size_t chunk_size, char *output_dir){
             return -1;
         }
 	
-	char output_filename[buffer_size];
+	char output_filename[BUFFER_SIZE];
 	snprintf(output_filename, sizeof(output_filename), "%s/chunk_%d.bin", output_dir, chunk_num);
         
 	FILE *fp_output = fopen(output_filename, "wb");
@@ -89,7 +187,49 @@ int store_image(char *input_file, size_t chunk_size, char *output_dir){
     syslog(LOG_INFO, "File splitting complete. Total chunks created: %d\n", chunk_num);
     free(buffer);
     fclose(fp_input);
-    return 0;
+
+
+    char *parity_buffer = calloc(chunk_size, 1);
+    char *chunk_buffer = malloc(chunk_size);
+    if (!parity_buffer || !chunk_buffer) {
+        syslog(LOG_ERR, "Failed to allocate memory for parity generation");
+        return -1;
+    }
+
+    for (int i = 0; i < chunk_num; i++) {
+        char in_filename[BUFFER_SIZE];
+        snprintf(in_filename, sizeof(in_filename), "%s/chunk_%d.bin", output_dir, i);
+        FILE *fp_chunk = fopen(in_filename, "rb");
+        if (!fp_chunk) {
+            syslog(LOG_ERR, "Failed to read chunk for parity calc: %s", in_filename);
+            free(parity_buffer);
+            free(chunk_buffer);
+            return -1;
+        }
+        size_t bytes_read = fread(chunk_buffer, 1, chunk_size, fp_chunk);
+        fclose(fp_chunk);
+
+        for (size_t j = 0; j < bytes_read; j++) {
+            parity_buffer[j] ^= chunk_buffer[j];
+        }
+    }
+    free(chunk_buffer);
+
+    char parity_filename[BUFFER_SIZE];
+    snprintf(parity_filename, sizeof(parity_filename), "%s/parity.bin", output_dir);
+    FILE *fp_parity = fopen(parity_filename, "wb");
+    if (!fp_parity) {
+        syslog(LOG_ERR, "Failed to create parity file.");
+        free(parity_buffer);
+        return -1;
+    }
+    fwrite(parity_buffer, 1, chunk_size, fp_parity);
+    fclose(fp_parity);
+    free(parity_buffer);
+    syslog(LOG_INFO, "Parity chunk created successfully.");
+
+    return chunk_num;
+
 }
 
 
@@ -110,6 +250,12 @@ int main(int argc, char *argv[]){
         syslog(LOG_ERR, "Failed to store image");
 	return -1;
     }
+
+    syslog(LOG_INFO, "Pausing. Please rm one ramdisk then press enter");
+    getchar();
+    syslog(LOG_INFO, "Rebuilding...");
+    rebuild_image("rebuilt_image.ppm", output_dir, split_file, chunk_size);
+    syslog(LOG_INFO, "Rebuild complete");
 
 
 }
