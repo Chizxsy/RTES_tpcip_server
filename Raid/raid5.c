@@ -36,18 +36,31 @@ int store_image(char *input_file, size_t chunk_size, char *output_dir){
     long bytes_rem = file_size;
     while (bytes_rem > 0){
         // check number of remainging bytes
-        size_t num_bytes = (bytes_rem < (long)chunk_size) ? (size_t)bytes_rem : chunk_size;
+        size_t bytes_to_read = (bytes_rem < (long)chunk_size) ? (size_t)bytes_rem : chunk_size;
         // read remaining bytes
-        size_t bytes_rem = fread(buffer, 1, num_bytes, fp_input);
+        size_t bytes_read = fread(buffer, 1, bytes_to_read, fp_input);
 
-        if (num_bytes != bytes_rem){
-            syslog(LOG_ERR, "Failed to read byte");
-            fclose(fp_input);
+        if (bytes_read != bytes_to_read) {
+            // More detailed logging
+            syslog(LOG_ERR, "File read error: Expected %zu bytes, but only got %zu.", bytes_to_read, bytes_read);
+            
+            // Check if a specific I/O error occurred
+            if (ferror(fp_input)) {
+                syslog(LOG_ERR, "Stream error reported by ferror().");
+                perror("fread error reason");
+            }
+            
+            // Check if we hit the end-of-file prematurely
+            if (feof(fp_input)) {
+                syslog(LOG_ERR, "End-of-file was reached unexpectedly.");
+            }
+
             free(buffer);
-	    return -1;
+            fclose(fp_input);
+            return -1;
         }
-
-        char output_filename[buffer_size];
+	
+	char output_filename[buffer_size];
 	snprintf(output_filename, sizeof(output_filename), "%s/chunk_%d.bin", output_dir, chunk_num);
         
 	FILE *fp_output = fopen(output_filename, "wb");
@@ -68,7 +81,7 @@ int store_image(char *input_file, size_t chunk_size, char *output_dir){
             return -1;
         }
 
-        num_bytes -= bytes_rem;
+        bytes_rem -= bytes_read;
         chunk_num++;
     }
 
