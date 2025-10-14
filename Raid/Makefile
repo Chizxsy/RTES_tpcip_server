@@ -9,3 +9,4 @@ raid5: raid5.o
 
 clean:
 	rm -f *.o raid5
+	rm -f output/*.bin
